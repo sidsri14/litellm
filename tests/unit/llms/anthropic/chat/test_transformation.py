@@ -430,5 +430,72 @@ def test_fix_ensures_tool_calls_for_tool_results():
     print("missing from the assistant message, they are added from cache or tools.")
 
 
+@pytest.mark.usefixtures("_vcr_outcome_gate", "setup_and_teardown")
+def test_scoped_tool_calls_cache_collision_resolution():
+    """
+    Test that when sequential tool call IDs (e.g. call_0) collide across conversations,
+    scoping by previous_response_id / response_id isolates the tool definitions.
+    """
+    shared_call_id = "call_0"
+    resp_a = "resp_session_alpha"
+    resp_b = "resp_session_beta"
+
+    # Seed scoped cache for Conversation A
+    TOOL_CALLS_CACHE.set_cache(
+        key=f"{resp_a}:{shared_call_id}",
+        value={
+            "id": shared_call_id,
+            "type": "function",
+            "function": {"name": "get_weather", "arguments": '{"city": "Paris"}'},
+        },
+    )
+    # Seed scoped cache for Conversation B (clobbering candidate if global)
+    TOOL_CALLS_CACHE.set_cache(
+        key=f"{resp_b}:{shared_call_id}",
+        value={
+            "id": shared_call_id,
+            "type": "function",
+            "function": {"name": "query_database", "arguments": '{"query": "SELECT 1"}'},
+        },
+    )
+
+    # 1. Resolve for conversation A
+    messages_a = [
+        {"role": "assistant", "content": "Checking weather..."},
+        {"role": "tool", "content": "18C", "tool_call_id": shared_call_id},
+    ]
+    fixed_a = LiteLLMCompletionResponsesConfig._ensure_tool_results_have_corresponding_tool_calls(
+        messages=messages_a, previous_response_id=resp_a
+    )
+    asst_a = next(msg for msg in fixed_a if msg.get("role") == "assistant")
+    assert asst_a["tool_calls"][0]["function"]["name"] == "get_weather"
+
+    # 2. Resolve for conversation B
+    messages_b = [
+        {"role": "assistant", "content": "Running query..."},
+        {"role": "tool", "content": "1 row", "tool_call_id": shared_call_id},
+    ]
+    fixed_b = LiteLLMCompletionResponsesConfig._ensure_tool_results_have_corresponding_tool_calls(
+        messages=messages_b, previous_response_id=resp_b
+    )
+    asst_b = next(msg for msg in fixed_b if msg.get("role") == "assistant")
+    assert asst_b["tool_calls"][0]["function"]["name"] == "query_database"
+
+    # 3. Test _transform_responses_api_tool_call_output_to_chat_completion_message with previous_response_id
+    tool_output_a = {"type": "function_call_output", "call_id": shared_call_id, "output": "Sunny"}
+    msgs_out_a = LiteLLMCompletionResponsesConfig._transform_responses_api_tool_call_output_to_chat_completion_message(
+        tool_call_output=tool_output_a, previous_response_id=resp_a
+    )
+    tool_asst_a = next(msg for msg in msgs_out_a if msg.get("role") == "assistant")
+    assert tool_asst_a["tool_calls"][0]["function"]["name"] == "get_weather"
+
+    tool_output_b = {"type": "function_call_output", "call_id": shared_call_id, "output": "Rows"}
+    msgs_out_b = LiteLLMCompletionResponsesConfig._transform_responses_api_tool_call_output_to_chat_completion_message(
+        tool_call_output=tool_output_b, previous_response_id=resp_b
+    )
+    tool_asst_b = next(msg for msg in msgs_out_b if msg.get("role") == "assistant")
+    assert tool_asst_b["tool_calls"][0]["function"]["name"] == "query_database"
+
+
 if __name__ == "__main__":
     test_fix_ensures_tool_calls_for_tool_results()
