@@ -1,5 +1,7 @@
+import type { ParseKeys } from "i18next";
 import React, { useEffect, useState } from "react";
 import { Controller, FormProvider, useForm, useFormContext } from "react-hook-form";
+import { Trans, useTranslation } from "react-i18next";
 
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
@@ -60,6 +62,7 @@ interface DynamicParamsFieldsProps {
 }
 
 const DynamicParamsFields: React.FC<DynamicParamsFieldsProps> = ({ params, callbackConfigs, selectedCallback }) => {
+  const { t } = useTranslation();
   const { register, control, formState } = useFormContext<CallbackFormValues>();
   const fieldIdPrefix = React.useId();
 
@@ -67,19 +70,22 @@ const DynamicParamsFields: React.FC<DynamicParamsFieldsProps> = ({ params, callb
     return null;
   }
 
+  const callbackConfig = findCallbackConfig(callbackConfigs, selectedCallback);
   return (
     <div className="space-y-4 mt-6 p-4 bg-muted rounded-lg border">
       {params.map((param) => {
-        const callbackConfig = callbackConfigs.find((config) => config.id === selectedCallback);
         const paramConfig = callbackConfig?.dynamic_params?.[param] || {};
         const paramType = paramConfig.type || "text";
         const fieldLabel = paramConfig.ui_name || param.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
         const isRequired = paramConfig.required || false;
         const selectOptions: string[] = Array.isArray(paramConfig.options) ? paramConfig.options : [];
         const isSelect = paramType === "select" && selectOptions.length > 0;
+        const isBoolean = paramType === "boolean";
         const fieldId = `${fieldIdPrefix}-${param}`;
-        const validationRules = isRequired ? { required: `Please enter the ${fieldLabel.toLowerCase()}` } : undefined;
-        const registration = isSelect ? undefined : register(param, validationRules);
+        const validationRules = isRequired
+          ? { required: t("loggingAndAlerts.loggingCallbacks.params.required", { field: fieldLabel.toLowerCase() }) }
+          : undefined;
+        const registration = isSelect || isBoolean ? undefined : register(param, validationRules);
 
         return (
           <Field key={param} className="mb-4">
@@ -98,7 +104,11 @@ const DynamicParamsFields: React.FC<DynamicParamsFieldsProps> = ({ params, callb
                     onValueChange={(selected: string | null) => field.onChange(selected ?? "")}
                   >
                     <SelectTrigger id={fieldId} className="w-full" onBlur={field.onBlur}>
-                      <SelectValue placeholder={`Select ${fieldLabel.toLowerCase()}`} />
+                      <SelectValue
+                        placeholder={t("loggingAndAlerts.loggingCallbacks.params.selectPlaceholder", {
+                          field: fieldLabel.toLowerCase(),
+                        })}
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       {selectOptions.map((option) => (
@@ -111,26 +121,51 @@ const DynamicParamsFields: React.FC<DynamicParamsFieldsProps> = ({ params, callb
                 )}
               />
             )}
+            {isBoolean && (
+              <Controller
+                control={control}
+                name={param}
+                render={({ field }) => (
+                  <Switch
+                    id={fieldId}
+                    checked={/^(true|1)$/i.test(String(field.value ?? ""))}
+                    onCheckedChange={(checked: boolean) => field.onChange(checked ? "true" : "false")}
+                    onBlur={field.onBlur}
+                  />
+                )}
+              />
+            )}
             {!isSelect &&
+              !isBoolean &&
               (paramType === "password" ? (
                 <Input
                   id={fieldId}
                   type="password"
-                  placeholder={`Enter your ${fieldLabel.toLowerCase()}`}
+                  placeholder={t("loggingAndAlerts.loggingCallbacks.params.inputPlaceholder", {
+                    field: fieldLabel.toLowerCase(),
+                  })}
                   {...registration}
                 />
               ) : paramType === "number" ? (
                 <Input
                   id={fieldId}
                   type="number"
-                  placeholder={`Enter ${fieldLabel.toLowerCase()}`}
+                  placeholder={t("loggingAndAlerts.loggingCallbacks.params.numberPlaceholder", {
+                    field: fieldLabel.toLowerCase(),
+                  })}
                   min={0}
                   max={1}
                   step={0.1}
                   {...registration}
                 />
               ) : (
-                <Input id={fieldId} placeholder={`Enter your ${fieldLabel.toLowerCase()}`} {...registration} />
+                <Input
+                  id={fieldId}
+                  placeholder={t("loggingAndAlerts.loggingCallbacks.params.inputPlaceholder", {
+                    field: fieldLabel.toLowerCase(),
+                  })}
+                  {...registration}
+                />
               ))}
             <FieldError errors={[formState.errors[param]]} />
           </Field>
@@ -160,18 +195,19 @@ export const CallbackSelector: React.FC<CallbackSelectorProps> = ({
   onCallbackChange,
   disabled = false,
 }) => {
+  const { t } = useTranslation();
   const { control } = useFormContext<CallbackFormValues>();
   const inputId = React.useId();
-  const selectedConfig = callbackConfigs.find((config) => config.id === selectedCallback) ?? null;
+  const selectedConfig = findCallbackConfig(callbackConfigs, selectedCallback) ?? null;
 
   return (
     <Controller
       control={control}
       name="callback"
-      rules={disabled ? undefined : { required: "Please select a callback" }}
+      rules={disabled ? undefined : { required: t("loggingAndAlerts.loggingCallbacks.selector.required") }}
       render={({ field, fieldState }) => (
         <Field>
-          <FieldLabel htmlFor={inputId}>Callback</FieldLabel>
+          <FieldLabel htmlFor={inputId}>{t("loggingAndAlerts.loggingCallbacks.selector.label")}</FieldLabel>
           <Combobox
             items={callbackConfigs}
             value={selectedConfig}
@@ -188,14 +224,14 @@ export const CallbackSelector: React.FC<CallbackSelectorProps> = ({
           >
             <ComboboxInput
               id={inputId}
-              placeholder="Choose a logging callback..."
+              placeholder={t("loggingAndAlerts.loggingCallbacks.selector.placeholder")}
               className="w-full"
               disabled={disabled}
               onBlur={field.onBlur}
               aria-invalid={fieldState.error !== undefined || undefined}
             />
             <ComboboxContent>
-              <ComboboxEmpty>No results</ComboboxEmpty>
+              <ComboboxEmpty>{t("loggingAndAlerts.loggingCallbacks.selector.noResults")}</ComboboxEmpty>
               <ComboboxList>
                 {(callbackConfig: CallbackConfigOption) => (
                   <ComboboxItem key={callbackConfig.id} value={callbackConfig}>
@@ -221,6 +257,32 @@ export const CallbackSelector: React.FC<CallbackSelectorProps> = ({
   );
 };
 
+const CALLBACK_CONFIG_ALIASES: Record<string, string> = { s3_v2: "s3" };
+const CALLBACK_UNSUPPORTED_PARAMS: Record<string, readonly string[]> = { s3: ["s3_partition_granularity"] };
+
+interface DynamicParamConfig {
+  type?: string;
+  ui_name?: string;
+  required?: boolean;
+  options?: string[];
+}
+
+interface CallbackConfigWithParams {
+  id: string;
+  dynamic_params?: Record<string, DynamicParamConfig>;
+}
+
+const findCallbackConfig = <T extends { id: string }>(
+  callbackConfigs: readonly T[],
+  callbackName: string | null,
+): T | undefined => {
+  if (!callbackName) {
+    return undefined;
+  }
+  const configId = CALLBACK_CONFIG_ALIASES[callbackName] ?? callbackName;
+  return callbackConfigs.find((config) => config.id === configId);
+};
+
 // Shared helper function to get dynamic params for a callback
 const getDynamicParamsForCallback = (
   callbackName: string | null,
@@ -231,9 +293,10 @@ const getDynamicParamsForCallback = (
     return fallbackVariables ? Object.keys(fallbackVariables) : [];
   }
 
-  const callbackConfig = callbackConfigs.find((config) => config.id === callbackName);
+  const callbackConfig = findCallbackConfig(callbackConfigs, callbackName);
   if (callbackConfig?.dynamic_params) {
-    return Object.keys(callbackConfig.dynamic_params);
+    const unsupportedParams = CALLBACK_UNSUPPORTED_PARAMS[callbackName] ?? [];
+    return Object.keys(callbackConfig.dynamic_params).filter((param) => !unsupportedParams.includes(param));
   }
 
   return fallbackVariables ? Object.keys(fallbackVariables) : [];
@@ -242,7 +305,7 @@ const getDynamicParamsForCallback = (
 // Shared helper function to build callback payload
 const buildCallbackPayload = (formValues: Record<string, any>, callbackName: string) => {
   return {
-    environment_variables: formValues,
+    environment_variables: Object.fromEntries(Object.entries(formValues).filter(([, value]) => value !== undefined)),
     litellm_settings: {
       success_callback: [callbackName],
     },
@@ -250,6 +313,7 @@ const buildCallbackPayload = (formValues: Record<string, any>, callbackName: str
 };
 
 const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, premiumUser }) => {
+  const { t } = useTranslation();
   const [callbacks, setCallbacks] = useState<AlertingObject[]>([]);
   const [isLoadingCallbacks, setIsLoadingCallbacks] = useState(true);
   const [alerts, setAlerts] = useState<any[]>([]);
@@ -292,9 +356,11 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
         setCallbackConfigs(data || []);
       })
       .catch((error) => {
-        toast.fromError("Failed to load callback configs: " + parseErrorMessage(error));
+        toast.fromError(
+          t("loggingAndAlerts.loggingCallbacks.toasts.configsLoadFailed", { error: parseErrorMessage(error) }),
+        );
       });
-  }, [accessToken]);
+  }, [accessToken, t]);
 
   useEffect(() => {
     if (showEditCallback && selectedEditCallback) {
@@ -305,8 +371,15 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
       );
       const fieldNameFor = (variable: string) =>
         params.find((param) => param.toUpperCase() === variable.toUpperCase()) ?? variable;
+      const callbackConfig = findCallbackConfig(callbackConfigs, selectedEditCallback.name);
       const normalized = Object.fromEntries(
-        Object.entries(selectedEditCallback.variables || {}).map(([k, v]) => [fieldNameFor(k), v ?? ""]),
+        Object.entries(selectedEditCallback.variables || {}).flatMap(([key, value]) => {
+          const fieldName = fieldNameFor(key);
+          if (value == null && callbackConfig?.dynamic_params?.[fieldName]?.type === "select") {
+            return [];
+          }
+          return [[fieldName, value ?? ""]];
+        }),
       );
       editForm.reset({
         ...normalized,
@@ -322,18 +395,18 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
       setActiveAlerts([...activeAlerts, alertName]);
     }
   };
-  const alerts_to_UI_NAME: Record<string, string> = {
-    llm_exceptions: "LLM Exceptions",
-    llm_too_slow: "LLM Responses Too Slow",
-    llm_requests_hanging: "LLM Requests Hanging",
-    budget_alerts: "Budget Alerts (API Keys, Users)",
-    user_spend_thresholds: "User Spend Thresholds (Daily/Monthly)",
-    user_spend_anomalies: "User Spend Anomaly Detection",
-    db_exceptions: "Database Exceptions (Read/Write)",
-    daily_reports: "Weekly/Monthly Spend Reports",
-    outage_alerts: "Outage Alerts",
-    region_outage_alerts: "Region Outage Alerts",
-    model_deprecation_warnings: "Model Deprecation Warnings",
+  const alerts_to_UI_NAME: Record<string, ParseKeys> = {
+    llm_exceptions: "loggingAndAlerts.alertTypes.labels.llmExceptions",
+    llm_too_slow: "loggingAndAlerts.alertTypes.labels.llmTooSlow",
+    llm_requests_hanging: "loggingAndAlerts.alertTypes.labels.llmRequestsHanging",
+    budget_alerts: "loggingAndAlerts.alertTypes.labels.budgetAlerts",
+    user_spend_thresholds: "loggingAndAlerts.alertTypes.labels.userSpendThresholds",
+    user_spend_anomalies: "loggingAndAlerts.alertTypes.labels.userSpendAnomalies",
+    db_exceptions: "loggingAndAlerts.alertTypes.labels.dbExceptions",
+    daily_reports: "loggingAndAlerts.alertTypes.labels.dailyReports",
+    outage_alerts: "loggingAndAlerts.alertTypes.labels.outageAlerts",
+    region_outage_alerts: "loggingAndAlerts.alertTypes.labels.regionOutageAlerts",
+    model_deprecation_warnings: "loggingAndAlerts.alertTypes.labels.modelDeprecationWarnings",
   };
 
   useEffect(() => {
@@ -388,7 +461,11 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
 
     try {
       await setCallbacksCall(accessToken, payload);
-      toast.success(isEdit ? "Callback updated successfully" : `Callback ${callbackName} added successfully`);
+      toast.success(
+        isEdit
+          ? t("loggingAndAlerts.loggingCallbacks.toasts.updated")
+          : t("loggingAndAlerts.loggingCallbacks.toasts.added", { name: callbackName }),
+      );
 
       if (isEdit) {
         setShowEditCallback(false);
@@ -479,7 +556,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
     } catch (error) {
       toast.fromError(error);
     }
-    toast.success("Alerts updated successfully");
+    toast.success(t("loggingAndAlerts.alertTypes.toasts.saved"));
   };
 
   const handleDeleteCallback = (callback: any) => {
@@ -495,7 +572,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
     try {
       setIsDeletingCallback(true);
       await deleteCallback(accessToken, callbackToDelete.name);
-      toast.success(`Callback ${callbackToDelete.name} deleted successfully`);
+      toast.success(t("loggingAndAlerts.loggingCallbacks.toasts.deleted", { name: callbackToDelete.name }));
 
       // Refresh the callbacks list
       if (userID && userRole) {
@@ -522,12 +599,12 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
       <div className="grid grid-cols-1 gap-2 p-8 w-full mt-2">
         <Tabs defaultValue="logging-callbacks">
           <TabsList variant="line">
-            <TabsTrigger value="logging-callbacks">Logging Callbacks</TabsTrigger>
-            <TabsTrigger value="cloudzero-cost-tracking">CloudZero Cost Tracking</TabsTrigger>
-            <TabsTrigger value="alerting-types">Alerting Types</TabsTrigger>
-            <TabsTrigger value="alerting-settings">Alerting Settings</TabsTrigger>
-            <TabsTrigger value="email-alerts">Email Alerts</TabsTrigger>
-            <TabsTrigger value="ms-teams-alerts">MS Teams Alerts</TabsTrigger>
+            <TabsTrigger value="logging-callbacks">{t("loggingAndAlerts.page.tabs.loggingCallbacks")}</TabsTrigger>
+            <TabsTrigger value="cloudzero-cost-tracking">{t("loggingAndAlerts.page.tabs.cloudZero")}</TabsTrigger>
+            <TabsTrigger value="alerting-types">{t("loggingAndAlerts.page.tabs.alertingTypes")}</TabsTrigger>
+            <TabsTrigger value="alerting-settings">{t("loggingAndAlerts.page.tabs.alertingSettings")}</TabsTrigger>
+            <TabsTrigger value="email-alerts">{t("loggingAndAlerts.page.tabs.emailAlerts")}</TabsTrigger>
+            <TabsTrigger value="ms-teams-alerts">{t("loggingAndAlerts.page.tabs.msTeamsAlerts")}</TabsTrigger>
           </TabsList>
           <TabsContent value="logging-callbacks" keepMounted>
             <LoggingCallbacksTable
@@ -543,7 +620,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
               onTest={async (cb) => {
                 try {
                   await serviceHealthCheck(accessToken, cb.name);
-                  toast.success("Health check triggered");
+                  toast.success(t("loggingAndAlerts.loggingCallbacks.toasts.healthCheckTriggered"));
                 } catch (error) {
                   toast.fromError(parseErrorMessage(error));
                 }
@@ -558,18 +635,21 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
           <TabsContent value="alerting-types" keepMounted>
             <Card className="p-6">
               <p className="my-2">
-                Alerts are sent to any Slack-compatible incoming webhook URL (Slack, Rocket.Chat, Mattermost, etc.). Get
-                Slack webhook urls from{" "}
-                <a href="https://api.slack.com/messaging/webhooks" target="_blank" style={{ color: "blue" }}>
-                  here
-                </a>
+                <Trans
+                  i18nKey="loggingAndAlerts.alertTypes.intro"
+                  components={{
+                    docs: (
+                      <a href="https://api.slack.com/messaging/webhooks" target="_blank" style={{ color: "blue" }} />
+                    ),
+                  }}
+                />
               </p>
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead></TableHead>
                     <TableHead></TableHead>
-                    <TableHead>Webhook URL (Slack-compatible)</TableHead>
+                    <TableHead>{t("loggingAndAlerts.alertTypes.columns.webhookUrl")}</TableHead>
                   </TableRow>
                 </TableHeader>
 
@@ -588,7 +668,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
                           ) : (
                             <Button className="flex items-center justify-center">
                               <a href="https://forms.gle/W3U4PZpJGFHWtHyA9" target="_blank">
-                                ✨ Enterprise Feature
+                                {t("loggingAndAlerts.alertTypes.enterpriseFeature")}
                               </a>
                             </Button>
                           )
@@ -602,7 +682,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
                         )}
                       </TableCell>
                       <TableCell className="whitespace-normal break-words">
-                        <p>{value}</p>
+                        <p>{t(value)}</p>
                       </TableCell>
                       <TableCell>
                         <Input
@@ -620,23 +700,21 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
                 </TableBody>
               </Table>
               <Button size="xs" className="mt-2" onClick={handleSaveAlerts}>
-                Save Changes
+                {t("loggingAndAlerts.alertTypes.saveChanges")}
               </Button>
 
               <Button
                 onClick={async () => {
                   try {
                     await serviceHealthCheck(accessToken, "slack");
-                    toast.success(
-                      "Alert test triggered. Test request to slack made - check logs/alerts on slack to verify",
-                    );
+                    toast.success(t("loggingAndAlerts.alertTypes.toasts.testTriggered"));
                   } catch (error) {
                     toast.fromError(parseErrorMessage(error));
                   }
                 }}
                 className="mx-2"
               >
-                Test Alerts
+                {t("loggingAndAlerts.alertTypes.testAlerts")}
               </Button>
             </Card>
           </TabsContent>
@@ -655,7 +733,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
       <Dialog open={showAddCallbacksModal} onOpenChange={(open) => !open && closeAddCallbackModal()}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[800px]">
           <DialogHeader>
-            <DialogTitle>Add Logging Callback</DialogTitle>
+            <DialogTitle>{t("loggingAndAlerts.loggingCallbacks.addDialog.title")}</DialogTitle>
           </DialogHeader>
           <a
             href="https://docs.litellm.ai/docs/proxy/logging"
@@ -664,7 +742,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
             style={{ color: "blue" }}
           >
             {" "}
-            LiteLLM Docs: Logging
+            {t("loggingAndAlerts.loggingCallbacks.addDialog.docsLink")}
           </a>
 
           <FormProvider {...addForm}>
@@ -683,10 +761,12 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
 
               <div className="flex justify-end space-x-3 pt-6 mt-6 border-t border-border">
                 <Button type="button" variant="outline" onClick={cancelAddCallback} disabled={isAddingCallback}>
-                  Cancel
+                  {t("loggingAndAlerts.loggingCallbacks.addDialog.cancel")}
                 </Button>
                 <Button type="submit" disabled={isAddingCallback}>
-                  {isAddingCallback ? "Adding..." : "Add Callback"}
+                  {isAddingCallback
+                    ? t("loggingAndAlerts.loggingCallbacks.addDialog.submitting")
+                    : t("loggingAndAlerts.loggingCallbacks.addDialog.submit")}
                 </Button>
               </div>
             </form>
@@ -697,7 +777,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
       <Dialog open={showEditCallback} onOpenChange={(open) => !open && closeEditCallbackModal()}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[800px]">
           <DialogHeader>
-            <DialogTitle>Edit Callback Settings</DialogTitle>
+            <DialogTitle>{t("loggingAndAlerts.loggingCallbacks.editDialog.title")}</DialogTitle>
           </DialogHeader>
           <FormProvider {...editForm}>
             <form onSubmit={editForm.handleSubmit(updateCallbackCall)}>
@@ -724,10 +804,12 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
 
               <div className="flex justify-end space-x-3 pt-6 mt-6 border-t border-border">
                 <Button type="button" variant="outline" onClick={closeEditCallbackModal} disabled={isUpdatingCallback}>
-                  Cancel
+                  {t("loggingAndAlerts.loggingCallbacks.editDialog.cancel")}
                 </Button>
                 <Button type="submit" disabled={isUpdatingCallback}>
-                  {isUpdatingCallback ? "Saving..." : "Save Changes"}
+                  {isUpdatingCallback
+                    ? t("loggingAndAlerts.loggingCallbacks.editDialog.submitting")
+                    : t("loggingAndAlerts.loggingCallbacks.editDialog.submit")}
                 </Button>
               </div>
             </form>
@@ -737,12 +819,15 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
 
       <DeleteResourceModal
         isOpen={showDeleteConfirmModal}
-        title="Delete Callback"
-        message="Are you sure you want to delete this callback? This action cannot be undone."
-        resourceInformationTitle="Callback Information"
+        title={t("loggingAndAlerts.loggingCallbacks.deleteDialog.title")}
+        message={t("loggingAndAlerts.loggingCallbacks.deleteDialog.message")}
+        resourceInformationTitle={t("loggingAndAlerts.loggingCallbacks.deleteDialog.infoTitle")}
         resourceInformation={[
-          { label: "Callback Name", value: callbackToDelete?.name },
-          { label: "Mode", value: callbackToDelete?.mode || "success" },
+          { label: t("loggingAndAlerts.loggingCallbacks.deleteDialog.callbackName"), value: callbackToDelete?.name },
+          {
+            label: t("loggingAndAlerts.loggingCallbacks.deleteDialog.mode"),
+            value: callbackToDelete?.mode || "success",
+          },
         ]}
         onCancel={() => {
           setShowDeleteConfirmModal(false);

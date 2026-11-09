@@ -25,6 +25,17 @@ class ResponseSpec:
     status: int = 200
     headers: dict[str, str] = field(default_factory=dict)
     delay: float = 0
+    chunk_delay: float = 0
+    events: tuple[tuple[str, object], ...] = ()
+    # Splits a non-stream body into this many writes, `chunk_delay` apart, so it trickles in.
+    body_chunks: int = 1
+
+    def payloads(self) -> tuple[bytes, ...]:
+        if not self.events:
+            body: Final = self.body if isinstance(self.body, bytes) else json.dumps(self.body).encode()
+            size: Final = max(-(-len(body) // max(self.body_chunks, 1)), 1)
+            return tuple(body[start : start + size] for start in range(0, len(body), size)) or (body,)
+        return tuple(f"event: {event}\ndata: {json.dumps(data)}\n\n".encode() for event, data in self.events)
 
 
 @dataclass
@@ -58,7 +69,9 @@ def recording_service() -> Iterator[RecordingServer]:
         def _handle(self) -> None:
             content_length: Final = int(self.headers.get("Content-Length", "0"))
             raw_body: Final = self.rfile.read(content_length) if content_length else b""
-            body: Final = json.loads(raw_body) if raw_body else None
+            body: Final = (
+                json.loads(raw_body) if raw_body and self.headers.get_content_type() == "application/json" else None
+            )
             requests.append(
                 RecordedRequest(
                     method=self.command,
@@ -71,19 +84,25 @@ def recording_service() -> Iterator[RecordingServer]:
             response: Final = responses.pop(0) if responses else copy.deepcopy(recording_server.default_response)
             if response.delay:
                 time.sleep(response.delay)
-            payload: Final = json.dumps(response.body).encode()
+            payloads: Final = response.payloads()
             self.send_response(response.status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Content-Type", "text/event-stream" if response.events else "application/json")
+            self.send_header("Content-Length", str(sum(len(payload) for payload in payloads)))
             for name, value in response.headers.items():
                 self.send_header(name, value)
             self.end_headers()
             try:
-                self.wfile.write(payload)
+                for index, payload in enumerate(payloads):
+                    if index and response.chunk_delay:
+                        time.sleep(response.chunk_delay)
+                    self.wfile.write(payload)
+                    self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
         do_POST = _handle
+        do_GET = _handle
+        do_DELETE = _handle
 
         def log_message(self, format: str, *args: object) -> None:
             pass
@@ -106,3 +125,9 @@ def recording_service() -> Iterator[RecordingServer]:
         if recording_server.expected_requests is not None:
             assert len(recording_server.requests) == recording_server.expected_requests
         assert recording_server.responses == []
+
+
+def relaxed(server: RecordingServer) -> Iterator[RecordingServer]:
+    server.expected_requests = None
+    yield server
+    server.responses.clear()

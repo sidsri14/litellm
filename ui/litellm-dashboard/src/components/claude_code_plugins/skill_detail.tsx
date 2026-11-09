@@ -1,8 +1,47 @@
 import React, { useState } from "react";
 import { ArrowLeft, Check, Copy, Link2 } from "lucide-react";
+import { Trans, useTranslation } from "react-i18next";
+import { useClaudeCodeMarketplaceRequiresKey } from "@/app/(dashboard)/hooks/claudeCodeMarketplace/useClaudeCodeMarketplaceRequiresKey";
 import { cn } from "@/lib/cva.config";
-import { buildMarketplaceSettingsSnippet, formatInstallCommand } from "./helpers";
+import {
+  buildMarketplaceSettingsSnippet,
+  formatInstallCommand,
+  getSourceDisplayText,
+  getSourceLink,
+  MARKETPLACE_KEY_PLACEHOLDER,
+} from "./helpers";
 import { Plugin } from "./types";
+
+const SkillSource: React.FC<{ source: Plugin["source"] }> = ({ source }) => {
+  const { t } = useTranslation();
+  const link = getSourceLink(source);
+  const href = link && source.source === "git-subdir" && source.path ? `${link}/tree/main/${source.path}` : link;
+  if (href) {
+    return (
+      <div className="mb-6">
+        <div className="mb-1 text-xs text-muted-foreground">{t("claudeCodePlugins.skillDetail.overview.source")}</div>
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1 break-all text-[13px] text-info"
+        >
+          {href.replace("https://", "")}
+          <Link2 className="size-3 shrink-0" />
+        </a>
+      </div>
+    );
+  }
+  if (!source.url) {
+    return null;
+  }
+  return (
+    <div className="mb-6">
+      <div className="mb-1 text-xs text-muted-foreground">{t("claudeCodePlugins.skillDetail.overview.source")}</div>
+      <div className="break-all text-[13px] text-foreground">{getSourceDisplayText(source)}</div>
+    </div>
+  );
+};
 
 interface SkillDetailProps {
   skill: Plugin;
@@ -13,8 +52,10 @@ interface SkillDetailProps {
 }
 
 const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState("overview");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const marketplaceRequiresKey = useClaudeCodeMarketplaceRequiresKey();
 
   const copyToClipboard = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
@@ -22,32 +63,40 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  const sourceUrl = (() => {
-    const src = skill.source;
-    if (src.source === "github" && src.repo) return `https://github.com/${src.repo}`;
-    if (src.source === "git-subdir" && src.url) return src.path ? `${src.url}/tree/main/${src.path}` : src.url;
-    if ((src.source === "url" || src.source === "archive") && src.url) return src.url;
-    return null;
-  })();
-
   const installCommand = formatInstallCommand(skill);
 
   const settingsSnippet = buildMarketplaceSettingsSnippet(
     typeof window !== "undefined" ? window.location.origin : "<proxy-url>",
+    marketplaceRequiresKey,
   );
 
   const detailRows = [
-    ...(skill.category ? [{ property: "Category", value: skill.category }] : []),
-    ...(skill.domain ? [{ property: "Domain", value: skill.domain }] : []),
-    ...(skill.namespace ? [{ property: "Namespace", value: skill.namespace }] : []),
-    ...(skill.version ? [{ property: "Version", value: skill.version }] : []),
-    ...(skill.author?.name ? [{ property: "Author", value: skill.author.name }] : []),
-    ...(skill.created_at ? [{ property: "Added", value: new Date(skill.created_at).toLocaleDateString() }] : []),
+    ...(skill.category
+      ? [{ property: t("claudeCodePlugins.skillDetail.properties.category"), value: skill.category }]
+      : []),
+    ...(skill.domain ? [{ property: t("claudeCodePlugins.skillDetail.properties.domain"), value: skill.domain }] : []),
+    ...(skill.namespace
+      ? [{ property: t("claudeCodePlugins.skillDetail.properties.namespace"), value: skill.namespace }]
+      : []),
+    ...(skill.version
+      ? [{ property: t("claudeCodePlugins.skillDetail.properties.version"), value: skill.version }]
+      : []),
+    ...(skill.author?.name
+      ? [{ property: t("claudeCodePlugins.skillDetail.properties.author"), value: skill.author.name }]
+      : []),
+    ...(skill.created_at
+      ? [
+          {
+            property: t("claudeCodePlugins.skillDetail.properties.added"),
+            value: new Date(skill.created_at).toLocaleDateString(),
+          },
+        ]
+      : []),
   ];
 
   const tabs = [
-    { key: "overview", label: "Overview" },
-    { key: "usage", label: "How to Use" },
+    { key: "overview", label: t("claudeCodePlugins.skillDetail.tabs.overview") },
+    { key: "usage", label: t("claudeCodePlugins.skillDetail.tabs.usage") },
   ];
 
   return (
@@ -58,7 +107,7 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
         className="mb-6 inline-flex cursor-pointer items-center gap-1.5 text-sm text-muted-foreground"
       >
         <ArrowLeft className="size-3" />
-        <span>Skills</span>
+        <span>{t("claudeCodePlugins.skillDetail.back")}</span>
       </div>
 
       {/* Header */}
@@ -94,12 +143,18 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
         <div className="flex gap-16">
           {/* Left column */}
           <div className="min-w-0 flex-1">
-            <h2 className="m-0 mb-1 text-lg font-normal text-foreground">Skill Details</h2>
-            <p className="m-0 mb-4 text-[13px] text-muted-foreground">Metadata registered with this skill</p>
+            <h2 className="m-0 mb-1 text-lg font-normal text-foreground">
+              {t("claudeCodePlugins.skillDetail.overview.title")}
+            </h2>
+            <p className="m-0 mb-4 text-[13px] text-muted-foreground">
+              {t("claudeCodePlugins.skillDetail.overview.subtitle")}
+            </p>
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="w-40 py-3 text-left font-medium text-muted-foreground">Property</th>
+                  <th className="w-40 py-3 text-left font-medium text-muted-foreground">
+                    {t("claudeCodePlugins.skillDetail.overview.propertyHeader")}
+                  </th>
                   <th className="py-3 text-left font-medium text-muted-foreground">{skill.name}</th>
                 </tr>
               </thead>
@@ -117,35 +172,28 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
           {/* Right sidebar */}
           <div className="w-60 shrink-0">
             <div className="mb-6">
-              <div className="mb-1 text-xs text-muted-foreground">Status</div>
+              <div className="mb-1 text-xs text-muted-foreground">
+                {t("claudeCodePlugins.skillDetail.overview.status")}
+              </div>
               <span
                 className={cn(
                   "rounded-xl px-2.5 py-[3px] text-xs font-medium",
                   skill.enabled ? "bg-success/10 text-success" : "bg-muted text-muted-foreground",
                 )}
               >
-                {skill.enabled ? "Public" : "Draft"}
+                {skill.enabled
+                  ? t("claudeCodePlugins.skillDetail.overview.public")
+                  : t("claudeCodePlugins.skillDetail.overview.draft")}
               </span>
             </div>
 
-            {sourceUrl && (
-              <div className="mb-6">
-                <div className="mb-1 text-xs text-muted-foreground">Source</div>
-                <a
-                  href={sourceUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 break-all text-[13px] text-info"
-                >
-                  {sourceUrl.replace("https://", "")}
-                  <Link2 className="size-3 shrink-0" />
-                </a>
-              </div>
-            )}
+            <SkillSource source={skill.source} />
 
             {skill.keywords && skill.keywords.length > 0 && (
               <div className="mb-6">
-                <div className="mb-2 text-xs text-muted-foreground">Tags</div>
+                <div className="mb-2 text-xs text-muted-foreground">
+                  {t("claudeCodePlugins.skillDetail.overview.tags")}
+                </div>
                 <div className="flex flex-wrap gap-1.5">
                   {skill.keywords.map((kw) => (
                     <span
@@ -160,7 +208,9 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
             )}
 
             <div>
-              <div className="mb-1 text-xs text-muted-foreground">Skill ID</div>
+              <div className="mb-1 text-xs text-muted-foreground">
+                {t("claudeCodePlugins.skillDetail.overview.skillId")}
+              </div>
               <div className="break-all font-mono text-xs text-foreground">{skill.id}</div>
             </div>
           </div>
@@ -170,15 +220,19 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
       {/* How to Use tab */}
       {activeTab === "usage" && (
         <div className="max-w-[640px]">
-          <h2 className="m-0 mb-2 text-lg font-normal text-foreground">Using this skill</h2>
+          <h2 className="m-0 mb-2 text-lg font-normal text-foreground">
+            {t("claudeCodePlugins.skillDetail.usage.title")}
+          </h2>
           <p className="m-0 mb-6 text-sm leading-relaxed text-muted-foreground">
-            Once your proxy is set as a marketplace, enable this skill in Claude Code with one command:
+            {t("claudeCodePlugins.skillDetail.usage.intro")}
           </p>
 
           {/* Install command */}
           <div className="mb-6 overflow-hidden rounded-lg border border-border">
             <div className="flex items-center justify-between border-b border-border bg-muted px-4 py-2.5">
-              <span className="text-[13px] font-medium text-foreground">Run in Claude Code</span>
+              <span className="text-[13px] font-medium text-foreground">
+                {t("claudeCodePlugins.skillDetail.runInClaudeCode")}
+              </span>
               <button
                 onClick={() => copyToClipboard(installCommand, "install")}
                 className={cn(
@@ -187,7 +241,9 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
                 )}
               >
                 {copiedKey === "install" ? <Check className="size-3" /> : <Copy className="size-3" />}
-                {copiedKey === "install" ? "Copied" : "Copy"}
+                {copiedKey === "install"
+                  ? t("claudeCodePlugins.skillDetail.copied")
+                  : t("claudeCodePlugins.skillDetail.copy")}
               </button>
             </div>
             <pre className="m-0 bg-card px-4 py-3.5 font-mono text-sm text-foreground">{installCommand}</pre>
@@ -196,7 +252,7 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
           {/* Shown when the marketplace catalog is stale and the plugin isn't found yet */}
           <div className="mb-4 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3">
             <p className="m-0 mb-2 text-[13px] leading-relaxed text-muted-foreground">
-              If you see &quot;Plugin {skill.name} not found in marketplace&quot;, update the catalog first:
+              {t("claudeCodePlugins.skillDetail.usage.staleCatalog", { name: skill.name })}
             </p>
             <pre className="m-0 bg-transparent font-mono text-[13px] text-foreground">
               /plugin marketplace update litellm
@@ -204,9 +260,9 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
           </div>
 
           <p className="m-0 text-[13px] leading-relaxed text-muted-foreground">
-            Don&apos;t have the marketplace configured yet?{" "}
+            {t("claudeCodePlugins.skillDetail.usage.notConfigured")}{" "}
             <span onClick={() => setActiveTab("setup")} className="cursor-pointer text-info">
-              See one-time setup →
+              {t("claudeCodePlugins.skillDetail.usage.seeSetup")}
             </span>
           </p>
         </div>
@@ -215,40 +271,83 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
       {/* Setup tab (linked from usage) */}
       {activeTab === "setup" && (
         <div className="max-w-[640px]">
-          <h2 className="m-0 mb-2 text-lg font-normal text-foreground">One-time marketplace setup</h2>
+          <h2 className="m-0 mb-2 text-lg font-normal text-foreground">
+            {t("claudeCodePlugins.skillDetail.setup.title")}
+          </h2>
 
-          {/* Option 1: single command — fastest path for most users */}
-          <p className="m-0 mb-3 text-sm leading-relaxed text-muted-foreground">
-            Run this command in Claude Code to register the marketplace:
-          </p>
-          <div className="mb-6 overflow-hidden rounded-lg border border-border">
-            <div className="flex items-center justify-between border-b border-border bg-muted px-4 py-2.5">
-              <span className="text-[13px] font-medium text-foreground">Run in Claude Code</span>
-              <button
-                onClick={() => {
-                  const origin = typeof window !== "undefined" ? window.location.origin : "";
-                  copyToClipboard(`/plugin marketplace add ${origin}/claude-code/marketplace.json`, "marketplace-cmd");
-                }}
-                className={cn(
-                  "flex cursor-pointer items-center gap-1 border-none bg-transparent p-0 text-xs",
-                  copiedKey === "marketplace-cmd" ? "text-success" : "text-info",
-                )}
-              >
-                {copiedKey === "marketplace-cmd" ? <Check className="size-3" /> : <Copy className="size-3" />}
-                {copiedKey === "marketplace-cmd" ? "Copied" : "Copy"}
-              </button>
-            </div>
-            <pre className="m-0 bg-card px-4 py-3.5 font-mono text-[13px] text-foreground">
-              {`/plugin marketplace add ${typeof window !== "undefined" ? window.location.origin : "<proxy-url>"}/claude-code/marketplace.json`}
-            </pre>
-          </div>
+          {marketplaceRequiresKey ? (
+            <>
+              <div className="mb-4 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3">
+                <p className="m-0 mb-2 text-[13px] leading-relaxed text-muted-foreground">
+                  {t("claudeCodePlugins.skillDetail.setup.removeFirst")}
+                </p>
+                <pre className="m-0 bg-transparent font-mono text-[13px] text-foreground">
+                  /plugin marketplace remove litellm
+                </pre>
+              </div>
+              <p className="m-0 mb-3 text-sm leading-relaxed text-muted-foreground">
+                <Trans
+                  i18nKey="claudeCodePlugins.skillDetail.setup.requiresKey"
+                  components={{
+                    settings: (
+                      <code className="rounded bg-muted px-1.5 py-px text-[13px]">~/.claude/settings.json</code>
+                    ),
+                    placeholder: (
+                      <code className="rounded bg-muted px-1.5 py-px text-[13px]">{MARKETPLACE_KEY_PLACEHOLDER}</code>
+                    ),
+                  }}
+                />
+              </p>
+            </>
+          ) : (
+            <>
+              {/* Option 1: single command — fastest path for most users */}
+              <p className="m-0 mb-3 text-sm leading-relaxed text-muted-foreground">
+                {t("claudeCodePlugins.skillDetail.setup.runCommand")}
+              </p>
+              <div className="mb-6 overflow-hidden rounded-lg border border-border">
+                <div className="flex items-center justify-between border-b border-border bg-muted px-4 py-2.5">
+                  <span className="text-[13px] font-medium text-foreground">
+                    {t("claudeCodePlugins.skillDetail.runInClaudeCode")}
+                  </span>
+                  <button
+                    onClick={() => {
+                      const origin = typeof window !== "undefined" ? window.location.origin : "";
+                      copyToClipboard(
+                        `/plugin marketplace add ${origin}/claude-code/marketplace.json`,
+                        "marketplace-cmd",
+                      );
+                    }}
+                    className={cn(
+                      "flex cursor-pointer items-center gap-1 border-none bg-transparent p-0 text-xs",
+                      copiedKey === "marketplace-cmd" ? "text-success" : "text-info",
+                    )}
+                  >
+                    {copiedKey === "marketplace-cmd" ? <Check className="size-3" /> : <Copy className="size-3" />}
+                    {copiedKey === "marketplace-cmd"
+                      ? t("claudeCodePlugins.skillDetail.copied")
+                      : t("claudeCodePlugins.skillDetail.copy")}
+                  </button>
+                </div>
+                <pre className="m-0 bg-card px-4 py-3.5 font-mono text-[13px] text-foreground">
+                  {`/plugin marketplace add ${typeof window !== "undefined" ? window.location.origin : "<proxy-url>"}/claude-code/marketplace.json`}
+                </pre>
+              </div>
 
-          {/* Option 2: settings.json — for persistent config or managed deployments.
-              extraKnownMarketplaces requires source to be a nested object, not a flat string. */}
-          <p className="m-0 mb-3 text-sm leading-relaxed text-muted-foreground">
-            Or add this to <code className="rounded bg-muted px-1.5 py-px text-[13px]">~/.claude/settings.json</code>{" "}
-            for a persistent configuration:
-          </p>
+              {/* Option 2: settings.json — for persistent config or managed deployments.
+                  extraKnownMarketplaces requires source to be a nested object, not a flat string. */}
+              <p className="m-0 mb-3 text-sm leading-relaxed text-muted-foreground">
+                <Trans
+                  i18nKey="claudeCodePlugins.skillDetail.setup.orSettings"
+                  components={{
+                    settings: (
+                      <code className="rounded bg-muted px-1.5 py-px text-[13px]">~/.claude/settings.json</code>
+                    ),
+                  }}
+                />
+              </p>
+            </>
+          )}
           <div className="overflow-hidden rounded-lg border border-border">
             <div className="flex items-center justify-between border-b border-border bg-muted px-4 py-2.5">
               <span className="text-[13px] font-medium text-foreground">~/.claude/settings.json</span>
@@ -260,7 +359,9 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
                 )}
               >
                 {copiedKey === "settings" ? <Check className="size-3" /> : <Copy className="size-3" />}
-                {copiedKey === "settings" ? "Copied" : "Copy"}
+                {copiedKey === "settings"
+                  ? t("claudeCodePlugins.skillDetail.copied")
+                  : t("claudeCodePlugins.skillDetail.copy")}
               </button>
             </div>
             <pre className="m-0 bg-card px-4 py-3.5 font-mono text-[13px] text-foreground">{settingsSnippet}</pre>
