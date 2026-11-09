@@ -273,3 +273,38 @@ def test_should_propagate_oauth_failure_and_retry_the_next_request() -> None:
     with pytest.raises(DatabricksException, match="OAuth M2M token request failed"):
         get_token()
     assert get_token() == "valid-token"
+
+
+@responses.activate
+def test_databricks_validate_environment_uses_cached_oauth_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABRICKS_CLIENT_ID", "synthetic-client")
+    monkeypatch.setenv("DATABRICKS_CLIENT_SECRET", "synthetic-secret")
+    monkeypatch.setenv("DATABRICKS_API_BASE", SDK_HOST)
+
+    token_mock = responses.post(
+        f"{SDK_HOST}/oidc/v1/token",
+        json={"access_token": "cached-m2m-token", "expires_in": 3600},
+    )
+
+    base = DatabricksBase()
+    # First call - fetches token from OIDC endpoint and caches it
+    _, headers1 = base.databricks_validate_environment(
+        api_key=None,
+        api_base=SDK_HOST,
+        endpoint_type="chat_completions",
+        custom_endpoint=False,
+        headers=None,
+    )
+    assert headers1["Authorization"] == "Bearer cached-m2m-token"
+    assert token_mock.call_count == 1
+
+    # Second call - reuses cached token without calling OIDC endpoint again
+    _, headers2 = base.databricks_validate_environment(
+        api_key=None,
+        api_base=SDK_HOST,
+        endpoint_type="chat_completions",
+        custom_endpoint=False,
+        headers=None,
+    )
+    assert headers2["Authorization"] == "Bearer cached-m2m-token"
+    assert token_mock.call_count == 1
