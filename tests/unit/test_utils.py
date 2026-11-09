@@ -9318,6 +9318,24 @@ def test_trimming_with_model_cost_max_input_tokens(model):
     assert get_token_count(trimmed_messages, model=model) < litellm.model_cost[model]["max_input_tokens"]
 
 
+@pytest.mark.parametrize("model", ["openai/gpt-4o", "azure/gpt-4o", "bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0"])
+def test_trimming_with_provider_prefixed_models(model):
+    from litellm.utils import get_model_info
+    model_info = get_model_info(model)
+    max_input = model_info.get("max_input_tokens") or model_info.get("max_tokens")
+    assert max_input is not None
+
+    long_content = "word " * int(max_input * 0.9)
+    messages = [{"role": "user", "content": long_content}]
+    initial_tokens = get_token_count(messages, model=model)
+    assert initial_tokens > int(max_input * 0.75)
+
+    trimmed = trim_messages(messages, model=model)
+    trimmed_tokens = get_token_count(trimmed, model=model)
+    assert trimmed_tokens <= int(max_input * 0.75)
+    assert trimmed_tokens < initial_tokens
+
+
 def test_trimming_with_untokenizable_field(caplog: pytest.LogCaptureFixture) -> None:
     from litellm.types.utils import ChatCompletionMessageToolCall, Function, Message
 
