@@ -167,6 +167,74 @@ class CohereV2ChatConfig(OpenAIGPTConfig):
                 optional_params["seed"] = value
         return optional_params
 
+    def _sanitize_cohere_v2_messages(self, messages: list[dict]) -> list[dict]:
+        sanitized_messages: list[dict] = []
+        for msg in messages:
+            msg_copy = dict(msg)
+
+            # Strip foreign provider fields that Cohere v2 rejects (HTTP 422)
+            for foreign_key in (
+                "reasoning_content",
+                "provider_specific_fields",
+                "extra_content",
+                "index",
+                "thinking_blocks",
+            ):
+                msg_copy.pop(foreign_key, None)
+
+            role = msg_copy.get("role")
+            tool_calls = msg_copy.get("tool_calls")
+
+            # Assistant messages with tool_calls:
+            # Cohere v2 API rejects assistant messages with non-empty 'tool_calls' containing
+            # content items of type 'text' (HTTP 400).
+            # Cohere requires that text to be moved into 'tool_plan'.
+            if role == "assistant" and tool_calls:
+                content = msg_copy.get("content")
+                text_content = ""
+                if isinstance(content, str):
+                    text_content = content
+                elif isinstance(content, list):
+                    parts = []
+                    for item in content:
+                        if isinstance(item, str):
+                            parts.append(item)
+                        elif isinstance(item, dict):
+                            if item.get("type") == "text" and "text" in item:
+                                parts.append(item["text"])
+                            elif "text" in item:
+                                parts.append(item["text"])
+                    text_content = "".join(parts)
+
+                if text_content and text_content.strip():
+                    if not msg_copy.get("tool_plan"):
+                        msg_copy["tool_plan"] = text_content
+
+                msg_copy.pop("content", None)
+
+            # Sanitize tool_calls items to keep only Cohere v2 supported keys
+            if tool_calls:
+                cleaned_tool_calls = []
+                for tc in tool_calls:
+                    if isinstance(tc, dict):
+                        cleaned_tc: dict[str, Any] = {
+                            "id": tc.get("id"),
+                            "type": tc.get("type", "function"),
+                        }
+                        func = tc.get("function")
+                        if isinstance(func, dict):
+                            cleaned_tc["function"] = {
+                                "name": func.get("name", ""),
+                                "arguments": func.get("arguments", ""),
+                            }
+                        cleaned_tool_calls.append(cleaned_tc)
+                    else:
+                        cleaned_tool_calls.append(tc)
+                msg_copy["tool_calls"] = cleaned_tool_calls
+
+            sanitized_messages.append(msg_copy)
+        return sanitized_messages
+
     def transform_request(
         self,
         model: str,
@@ -179,6 +247,22 @@ class CohereV2ChatConfig(OpenAIGPTConfig):
         Cohere v2 chat api is in openai format, so we can use the openai transform request function to transform the request.
         """
         data: Final = super().transform_request(model, messages, optional_params, litellm_params, headers)
+        if "messages" in data and isinstance(data["messages"], list):
+            data["messages"] = self._sanitize_cohere_v2_messages(data["messages"])
+
+        return data
+
+    async def async_transform_request(
+        self,
+        model: str,
+        messages: list[AllMessageValues],
+        optional_params: dict,
+        litellm_params: dict,
+        headers: dict,
+    ) -> dict:
+        data: Final = await super().async_transform_request(model, messages, optional_params, litellm_params, headers)
+        if "messages" in data and isinstance(data["messages"], list):
+            data["messages"] = self._sanitize_cohere_v2_messages(data["messages"])
 
         return data
 

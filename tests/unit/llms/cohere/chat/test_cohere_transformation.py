@@ -182,6 +182,98 @@ class TestCohereV2Transform:
         )
         assert result == {"stop_sequences": ["END", "STOP"]}
 
+    def test_v2_transform_request_moves_assistant_text_to_tool_plan(self):
+        """Cohere v2 rejects assistant messages having tool_calls + content text with 400. Content must move to tool_plan."""
+        messages = [
+            {"role": "user", "content": "What's the weather in Tokyo?"},
+            {
+                "role": "assistant",
+                "content": "Let me look up the weather in Tokyo for you.",
+                "tool_calls": [
+                    {
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {"name": "get_weather", "arguments": '{"location": "Tokyo"}'},
+                        "index": 0,
+                        "extra_content": {"thought": "searching"},
+                        "provider_specific_fields": {"vertex": True},
+                    }
+                ],
+                "reasoning_content": "Thinking about Tokyo weather...",
+                "thinking_blocks": [{"type": "thinking", "text": "Tokyo is cold"}],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_123",
+                "content": '{"temp": 15}',
+                "provider_specific_fields": {"status": "ok"},
+            },
+        ]
+        result = self.config.transform_request(
+            model=self.model,
+            messages=messages,
+            optional_params={},
+            litellm_params={},
+            headers={},
+        )
+        transformed_msgs = result["messages"]
+        assistant_msg = transformed_msgs[1]
+        assert "content" not in assistant_msg
+        assert assistant_msg["tool_plan"] == "Let me look up the weather in Tokyo for you."
+        assert "reasoning_content" not in assistant_msg
+        assert "thinking_blocks" not in assistant_msg
+        assert len(assistant_msg["tool_calls"]) == 1
+        tool_call = assistant_msg["tool_calls"][0]
+        assert tool_call == {
+            "id": "call_123",
+            "type": "function",
+            "function": {"name": "get_weather", "arguments": '{"location": "Tokyo"}'},
+        }
+        assert "index" not in tool_call
+        assert "extra_content" not in tool_call
+        assert "provider_specific_fields" not in tool_call
+
+        tool_msg = transformed_msgs[2]
+        assert tool_msg["role"] == "tool"
+        assert tool_msg["tool_call_id"] == "call_123"
+        assert tool_msg["content"] == '{"temp": 15}'
+        assert "provider_specific_fields" not in tool_msg
+
+    @pytest.mark.asyncio
+    async def test_v2_async_transform_request_sanitizes_messages(self):
+        """Async transform request must perform the same sanitization as sync."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Checking flight..."}],
+                "tool_calls": [
+                    {
+                        "id": "call_flight_1",
+                        "type": "function",
+                        "function": {"name": "book_flight", "arguments": "{}"},
+                        "index": 1,
+                    }
+                ],
+                "reasoning_content": "Searching flights",
+            }
+        ]
+        result = await self.config.async_transform_request(
+            model=self.model,
+            messages=messages,
+            optional_params={},
+            litellm_params={},
+            headers={},
+        )
+        assistant_msg = result["messages"][0]
+        assert "content" not in assistant_msg
+        assert assistant_msg["tool_plan"] == "Checking flight..."
+        assert "reasoning_content" not in assistant_msg
+        assert assistant_msg["tool_calls"][0] == {
+            "id": "call_flight_1",
+            "type": "function",
+            "function": {"name": "book_flight", "arguments": "{}"},
+        }
+
 
 @pytest.mark.asyncio
 async def test_cohere_request_body_with_allowed_params():
