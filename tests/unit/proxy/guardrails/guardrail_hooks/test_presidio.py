@@ -2351,6 +2351,103 @@ async def test_standalone_scans_without_restoration_tokens(input_type: Literal["
     assert "John Smith" not in result["texts"][0]
 
 
+@pytest.mark.asyncio
+async def test_apply_guardrail_masks_tool_call_arguments_on_request() -> None:
+    guardrail = OPTIONAL_PresidioPIIMasking(
+        guardrail_name="test_presidio",
+        output_parse_pii=True,
+        mock_testing=True,
+    )
+
+    async def mock_check_pii(text, output_parse_pii, presidio_config, request_data):
+        return text.replace("bob@partner.example", "<EMAIL_ADDRESS_1>")
+
+    guardrail.check_pii = mock_check_pii
+
+    inputs = {
+        "texts": ["Draft a reply to Alice."],
+        "tool_calls": [
+            {
+                "id": "c2",
+                "type": "function",
+                "function": {
+                    "name": "search_mail",
+                    "arguments": '{"query": "bob@partner.example"}',
+                },
+            },
+            {
+                "id": "toolu_1",
+                "type": "tool_use",
+                "name": "send_mail",
+                "input": {"recipient": "bob@partner.example"},
+            },
+        ],
+    }
+
+    result = await guardrail.apply_guardrail(
+        inputs=inputs,
+        request_data={"model": "gpt-4o", "metadata": {}},
+        input_type="request",
+    )
+
+    tc0 = result["tool_calls"][0]
+    assert "<EMAIL_ADDRESS_1>" in tc0["function"]["arguments"]
+    assert "bob@partner.example" not in tc0["function"]["arguments"]
+
+    tc1 = result["tool_calls"][1]
+    assert tc1["input"]["recipient"] == "<EMAIL_ADDRESS_1>"
+
+
+@pytest.mark.asyncio
+async def test_apply_guardrail_unmasks_tool_call_arguments_on_response() -> None:
+    guardrail = OPTIONAL_PresidioPIIMasking(
+        guardrail_name="test_presidio",
+        output_parse_pii=True,
+        mock_testing=True,
+    )
+
+    request_data = {
+        "model": "gpt-4o",
+        "metadata": {
+            "pii_tokens": {
+                "<EMAIL_ADDRESS_1>": "bob@partner.example",
+            }
+        },
+    }
+
+    inputs = {
+        "texts": ["Processed result."],
+        "tool_calls": [
+            {
+                "id": "c2",
+                "type": "function",
+                "function": {
+                    "name": "search_mail",
+                    "arguments": '{"query": "<EMAIL_ADDRESS_1>"}',
+                },
+            },
+            {
+                "id": "toolu_1",
+                "type": "tool_use",
+                "name": "send_mail",
+                "input": {"recipient": "<EMAIL_ADDRESS_1>"},
+            },
+        ],
+    }
+
+    result = await guardrail.apply_guardrail(
+        inputs=inputs,
+        request_data=request_data,
+        input_type="response",
+    )
+
+    tc0 = result["tool_calls"][0]
+    assert tc0["function"]["arguments"] == '{"query": "bob@partner.example"}'
+
+    tc1 = result["tool_calls"][1]
+    assert tc1["input"]["recipient"] == "bob@partner.example"
+
+
 def _anthropic_sse(event_type: str, payload: dict) -> bytes:
     return f"event: {event_type}\ndata: {json.dumps(payload)}\n\n".encode()
 

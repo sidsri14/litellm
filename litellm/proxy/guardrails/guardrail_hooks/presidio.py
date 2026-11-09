@@ -9,6 +9,7 @@
 
 
 import asyncio
+import copy
 import json
 import re
 import threading
@@ -1821,10 +1822,11 @@ class _OPTIONAL_PresidioPIIMasking(CustomGuardrail):
         pii_tokens: Final = metadata.get("pii_tokens", {})
 
         new_texts: Final = []
-        if input_type == "response" and (
+        should_unmask: Final = input_type == "response" and (
             self._callback_role == "restore"
             or (self._callback_role is None and not self.apply_to_output and pii_tokens)
-        ):
+        )
+        if should_unmask:
             for text in texts:
                 new_texts.append(self._unmask_pii_text(text, pii_tokens))
         else:
@@ -1837,6 +1839,56 @@ class _OPTIONAL_PresidioPIIMasking(CustomGuardrail):
                 )
                 new_texts.append(modified_text)
         inputs["texts"] = new_texts
+
+        tool_calls: Final = inputs.get("tool_calls")
+        if tool_calls is not None:
+            new_tool_calls: list = []
+            for tc in tool_calls:
+                if isinstance(tc, dict):
+                    tc_dict = copy.deepcopy(tc)
+                    func = tc_dict.get("function")
+                    if isinstance(func, dict) and isinstance(func.get("arguments"), str):
+                        raw_args = func["arguments"]
+                        if should_unmask:
+                            func["arguments"] = self._unmask_pii_text(raw_args, pii_tokens)
+                        else:
+                            func["arguments"] = await self.check_pii(
+                                text=raw_args,
+                                output_parse_pii=self.output_parse_pii,
+                                presidio_config=None,
+                                request_data=request_data or {},
+                            )
+                    elif "input" in tc_dict:
+                        raw_input = tc_dict["input"]
+                        if isinstance(raw_input, str):
+                            if should_unmask:
+                                tc_dict["input"] = self._unmask_pii_text(raw_input, pii_tokens)
+                            else:
+                                tc_dict["input"] = await self.check_pii(
+                                    text=raw_input,
+                                    output_parse_pii=self.output_parse_pii,
+                                    presidio_config=None,
+                                    request_data=request_data or {},
+                                )
+                        elif isinstance(raw_input, dict):
+                            input_json = json.dumps(raw_input)
+                            if should_unmask:
+                                processed = self._unmask_pii_text(input_json, pii_tokens)
+                            else:
+                                processed = await self.check_pii(
+                                    text=input_json,
+                                    output_parse_pii=self.output_parse_pii,
+                                    presidio_config=None,
+                                    request_data=request_data or {},
+                                )
+                            try:
+                                tc_dict["input"] = json.loads(processed)
+                            except Exception:
+                                tc_dict["input"] = processed
+                    new_tool_calls.append(tc_dict)
+                else:
+                    new_tool_calls.append(tc)
+            inputs["tool_calls"] = new_tool_calls
         return inputs
 
     def update_in_memory_litellm_params(self, litellm_params: LitellmParams) -> None:
